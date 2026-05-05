@@ -5,6 +5,7 @@ defmodule Mix.Tasks.Rinha.BuildIndex do
 
   @shortdoc "Builds vector index files from references.json.gz"
   @progress_every 100_000
+  @q16_scale 32_767.0
 
   @impl true
   def run(args) do
@@ -58,7 +59,9 @@ defmodule Mix.Tasks.Rinha.BuildIndex do
     {bucket_offsets, postings_size} = assemble_postings(postings_path, bucket_ids, bucket_tmp_dir)
 
     meta = %{
-      version: 1,
+      version: 2,
+      vector_format: :q16,
+      vector_scale: @q16_scale,
       dim: 14,
       total: total,
       postings_size: postings_size,
@@ -103,13 +106,13 @@ defmodule Mix.Tasks.Rinha.BuildIndex do
 
     IO.binwrite(
       io,
-      <<as_float(v0)::float-little-32, as_float(v1)::float-little-32,
-        as_float(v2)::float-little-32, as_float(v3)::float-little-32,
-        as_float(v4)::float-little-32, as_float(v5)::float-little-32,
-        as_float(v6)::float-little-32, as_float(v7)::float-little-32,
-        as_float(v8)::float-little-32, as_float(v9)::float-little-32,
-        as_float(v10)::float-little-32, as_float(v11)::float-little-32,
-        as_float(v12)::float-little-32, as_float(v13)::float-little-32>>
+      <<as_q16(v0)::signed-little-16, as_q16(v1)::signed-little-16,
+        as_q16(v2)::signed-little-16, as_q16(v3)::signed-little-16,
+        as_q16(v4)::signed-little-16, as_q16(v5)::signed-little-16,
+        as_q16(v6)::signed-little-16, as_q16(v7)::signed-little-16,
+        as_q16(v8)::signed-little-16, as_q16(v9)::signed-little-16,
+        as_q16(v10)::signed-little-16, as_q16(v11)::signed-little-16,
+        as_q16(v12)::signed-little-16, as_q16(v13)::signed-little-16>>
     )
   end
 
@@ -170,6 +173,17 @@ defmodule Mix.Tasks.Rinha.BuildIndex do
     {offsets, final_offset}
   end
 
-  defp as_float(value) when is_integer(value), do: value * 1.0
-  defp as_float(value) when is_float(value), do: value
+  defp as_q16(value) when is_integer(value), do: as_q16(value * 1.0)
+
+  defp as_q16(value) when is_float(value) do
+    value
+    |> clamp_range(-1.0, 1.0)
+    |> Kernel.*(@q16_scale)
+    |> Float.round()
+    |> trunc()
+  end
+
+  defp clamp_range(value, min_value, _max_value) when value < min_value, do: min_value
+  defp clamp_range(value, _min_value, max_value) when value > max_value, do: max_value
+  defp clamp_range(value, _min_value, _max_value), do: value
 end

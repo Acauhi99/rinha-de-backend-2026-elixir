@@ -24,6 +24,31 @@ defmodule Backend.Config do
     System.get_env("ENGINE_URL", "http://engine:4000/internal/score")
   end
 
+  def cowboy_max_connections do
+    env_int("COWBOY_MAX_CONNECTIONS", 128)
+    |> at_least(1)
+  end
+
+  def cowboy_num_acceptors do
+    env_int("COWBOY_NUM_ACCEPTORS", 8)
+    |> at_least(1)
+  end
+
+  def cowboy_idle_timeout_ms do
+    env_int("COWBOY_IDLE_TIMEOUT_MS", 5_000)
+    |> at_least(1)
+  end
+
+  def cowboy_request_timeout_ms do
+    env_int("COWBOY_REQUEST_TIMEOUT_MS", 5_000)
+    |> at_least(1)
+  end
+
+  def cowboy_max_keepalive do
+    env_int("COWBOY_MAX_KEEPALIVE", 100)
+    |> at_least(1)
+  end
+
   def index_dir do
     System.get_env("INDEX_DIR") || default_index_dir()
   end
@@ -41,5 +66,9 @@ defmodule Backend.Config do
       nil -> default
       value -> String.to_integer(value)
     end
+  end
+
+  defp at_least(value, min) when is_integer(value) and is_integer(min) do
+    if value < min, do: min, else: value
   end
 end

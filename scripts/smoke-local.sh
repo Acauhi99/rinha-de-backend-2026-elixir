@@ -20,7 +20,7 @@ wait_ready
 
 if command -v k6 >/dev/null 2>&1; then
   k6 run test/smoke.js
-  curl -fsS http://localhost:4003/internal/metrics | jq
+  curl -fsS http://localhost:4001/internal/metrics | jq
 else
   echo "k6 nao encontrado. instale k6 para rodar smoke." >&2
 fi

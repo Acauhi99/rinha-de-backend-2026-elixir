@@ -1,10 +1,18 @@
 defmodule Backend.EngineClient do
   @moduledoc false
 
+  def score_payload(payload) when is_map(payload) do
+    request_payload(payload)
+  end
+
   def score_vector(vector) when is_list(vector) do
+    request_payload(%{"vector" => vector})
+  end
+
+  defp request_payload(payload) when is_map(payload) do
     started = System.monotonic_time(:microsecond)
 
-    body = Jason.encode!(%{"vector" => vector})
+    body = Jason.encode!(payload)
     headers = [{'content-type', 'application/json'}]
 
     request = {String.to_charlist(Backend.Config.engine_url()), headers, 'application/json', body}
@@ -20,26 +28,10 @@ defmodule Backend.EngineClient do
 
     case result do
       {:ok, {{_, 200, _}, _headers, response_body}} ->
-        parse_response(response_body)
+        {:ok, response_body}
 
       _ ->
         {:error, :engine_unavailable}
-    end
-  end
-
-  defp parse_response(response_body) do
-    with {:ok, decoded} <- Jason.decode(response_body),
-         fraud_score when is_number(fraud_score) <- decoded["fraud_score"],
-         candidate_count when is_integer(candidate_count) <- decoded["candidate_count"] do
-      Backend.Metrics.record_candidate_count(candidate_count)
-
-      {:ok,
-       %{
-         fraud_score: fraud_score * 1.0,
-         candidate_count: candidate_count
-       }}
-    else
-      _ -> {:error, :invalid_engine_payload}
     end
   end
 end

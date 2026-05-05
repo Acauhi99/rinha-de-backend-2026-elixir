@@ -3,7 +3,7 @@ defmodule Backend.Metrics do
 
   use GenServer
 
-  @keep 20_000
+  @keep 4_096
 
   def start_link(_opts) do
     GenServer.start_link(__MODULE__, %{}, name: __MODULE__)
@@ -30,19 +30,23 @@ defmodule Backend.Metrics do
     {:ok,
      %{
        fallback_count: 0,
-       engine_latency_us: [],
-       candidate_count: []
+       engine_latency_us: :queue.new(),
+       engine_latency_count: 0,
+       candidate_count: :queue.new(),
+       candidate_count_count: 0
      }}
   end
 
   @impl true
   def handle_cast({:engine_latency_us, value}, state) do
-    {:noreply, %{state | engine_latency_us: keep_latest([value | state.engine_latency_us])}}
+    {queue, count} = queue_push(state.engine_latency_us, state.engine_latency_count, value, @keep)
+    {:noreply, %{state | engine_latency_us: queue, engine_latency_count: count}}
   end
 
   @impl true
   def handle_cast({:candidate_count, value}, state) do
-    {:noreply, %{state | candidate_count: keep_latest([value | state.candidate_count])}}
+    {queue, count} = queue_push(state.candidate_count, state.candidate_count_count, value, @keep)
+    {:noreply, %{state | candidate_count: queue, candidate_count_count: count}}
   end
 
   @impl true
@@ -55,16 +59,22 @@ defmodule Backend.Metrics do
     snapshot = %{
       role: Backend.Config.role(),
       fallback_count: state.fallback_count,
-      engine_latency_us: stats(state.engine_latency_us),
-      candidate_count: stats(state.candidate_count)
+      engine_latency_us: stats(:queue.to_list(state.engine_latency_us)),
+      candidate_count: stats(:queue.to_list(state.candidate_count))
     }
 
     {:reply, snapshot, state}
   end
 
-  defp keep_latest(values) do
-    values
-    |> Enum.take(@keep)
+  defp queue_push(queue, count, value, keep) do
+    queue = :queue.in(value, queue)
+
+    if count < keep do
+      {queue, count + 1}
+    else
+      {{:value, _oldest}, queue} = :queue.out(queue)
+      {queue, count}
+    end
   end
 
   defp stats([]), do: %{count: 0, p50: nil, p95: nil, p99: nil, max: nil}

@@ -5,6 +5,14 @@ import { Counter } from 'k6/metrics';
 import { textSummary } from 'https://jslib.k6.io/k6-summary/0.0.1/index.js';
 import exec from 'k6/execution';
 
+const targetRps = Number(__ENV.K6_TARGET_RPS || 900);
+const durationSec = Number(__ENV.K6_DURATION_SECONDS || 120);
+const startRate = Number(__ENV.K6_START_RATE || 1);
+const preAllocatedVUs = Number(__ENV.K6_PRE_ALLOCATED_VUS || 100);
+const maxVUs = Number(__ENV.K6_MAX_VUS || 250);
+const gracefulStopSec = Number(__ENV.K6_GRACEFUL_STOP_SECONDS || 10);
+const httpTimeoutMs = Number(__ENV.HTTP_TIMEOUT_MS || 2001);
+
 const testData = new SharedArray('test-data', function () {
     return JSON.parse(open('./test-data.json')).entries;
 });
@@ -29,13 +37,13 @@ export const options = {
     scenarios: {
         default: {
             executor: 'ramping-arrival-rate',
-            startRate: 1,
+            startRate: startRate,
             timeUnit: '1s',
-            preAllocatedVUs: 100,
-            maxVUs: 250,
-            gracefulStop: '10s',
+            preAllocatedVUs: preAllocatedVUs,
+            maxVUs: maxVUs,
+            gracefulStop: `${gracefulStopSec}s`,
             stages: [
-                { duration: '120s', target: 900 },
+                { duration: `${durationSec}s`, target: targetRps },
             ],
         },
     },
@@ -59,7 +67,7 @@ export default function () {
     const res = http.post(
         'http://localhost:9999/fraud-score',
         JSON.stringify(entry.request),
-        { headers: { 'Content-Type': 'application/json' }, timeout: '2001ms' }
+        { headers: { 'Content-Type': 'application/json' }, timeout: `${httpTimeoutMs}ms` }
     );
 
     if (res.status === 200) {

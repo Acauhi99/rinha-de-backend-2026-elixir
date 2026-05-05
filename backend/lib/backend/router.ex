@@ -54,9 +54,10 @@ defmodule Backend.Router do
 
   defp handle_fraud_score(conn) do
     with {:ok, vector} <- Backend.FraudScorer.vectorize(conn.body_params),
-         {:ok, engine_result} <- Backend.EngineClient.score_vector(vector) do
-      fraud_score = engine_result.fraud_score
+         {:ok, result} <- Backend.EngineIndex.score(vector) do
+      fraud_score = result.fraud_score
       approved = fraud_score < 0.6
+      Backend.Metrics.record_candidate_count(result.candidate_count)
 
       body =
         Jason.encode_to_iodata!(%{

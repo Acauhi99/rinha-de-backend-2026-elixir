@@ -8,8 +8,16 @@ defmodule Backend.Server do
       options: [
         ip: {0, 0, 0, 0},
         port: port(),
-        compress: true,
-        protocol_options: [max_keepalive: :infinity]
+        compress: false,
+        transport_options: [
+          num_acceptors: Backend.Config.cowboy_num_acceptors(),
+          max_connections: Backend.Config.cowboy_max_connections()
+        ],
+        protocol_options: [
+          request_timeout: Backend.Config.cowboy_request_timeout_ms(),
+          idle_timeout: Backend.Config.cowboy_idle_timeout_ms(),
+          max_keepalive: Backend.Config.cowboy_max_keepalive()
+        ]
       ]
     )
   end

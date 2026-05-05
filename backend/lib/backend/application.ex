@@ -10,12 +10,14 @@ defmodule Backend.Application do
         :api ->
           [
             Backend.ReferenceData,
+            Backend.EngineIndex,
             Backend.Metrics,
             Backend.Server
           ]
 
         :engine ->
           [
+            Backend.ReferenceData,
             Backend.EngineIndex,
             Backend.Metrics,
             Backend.Server
