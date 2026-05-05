@@ -1,0 +1,9 @@
+.git
+.github
+benchmarks
+temporary-results
+submission
+backend/_build
+backend/deps
+backend/.elixir_ls
+test/results.json
