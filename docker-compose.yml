@@ -23,8 +23,8 @@ services:
       PORT: "4000"
       ENGINE_URL: http://engine:4000/internal/score
       ENGINE_TIMEOUT_MS: "8"
-      CANDIDATES_TARGET: "1000"
-      CANDIDATES_HARD_CAP: "2000"
+      CANDIDATES_TARGET: "800"
+      CANDIDATES_HARD_CAP: "1600"
       RINHA_RESOURCES_DIR: /app/resources
       ERL_AFLAGS: "+S 1:1 +A 1 +sbwt none +sbwtdcpu none +sbwtdio none"
     deploy:
@@ -40,8 +40,8 @@ services:
       PORT: "4000"
       ENGINE_URL: http://engine:4000/internal/score
       ENGINE_TIMEOUT_MS: "8"
-      CANDIDATES_TARGET: "1000"
-      CANDIDATES_HARD_CAP: "2000"
+      CANDIDATES_TARGET: "800"
+      CANDIDATES_HARD_CAP: "1600"
       RINHA_RESOURCES_DIR: /app/resources
       ERL_AFLAGS: "+S 1:1 +A 1 +sbwt none +sbwtdcpu none +sbwtdio none"
     deploy:
