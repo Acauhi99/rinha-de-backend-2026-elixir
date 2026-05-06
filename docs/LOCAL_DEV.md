@@ -1,5 +1,9 @@
 # Setup local (Elixir)
 
+Estrategia, objetivos e gates de score:
+
+- [SCORE_PLAYBOOK.md](./SCORE_PLAYBOOK.md)
+
 ## Topologia
 
 - `lb` (porta `9999`)
@@ -52,6 +56,20 @@ K6_TARGET_RPS=450 K6_DURATION_SECONDS=45 make replay-8777799
 
 O script faz checkout do commit da branch `submission`, valida digest da imagem e limites (LB `0.10/10MB`, APIs `0.45/170MB`), roda k6 e salva artefatos em `benchmarks/replay-8777799-<timestamp>/`.
 
+## Runner de hipotese H1 (infra-only)
+
+Executa `control x2` e `h1 x2` no envelope da `submission`, gera artefatos e `summary.md` com gates:
+
+```bash
+make hyp-h1
+```
+
+Padrao atual:
+
+- `K6_TARGET_RPS=450`
+- `K6_DURATION_SECONDS=45`
+- intervalo entre runs: `60s`
+
 `make bench` salva artefatos em `benchmarks/<timestamp>/`:
 
 - `results.json`
@@ -75,4 +93,4 @@ O script faz checkout do commit da branch `submission`, valida digest da imagem 
 - `fallback_count` (api metrics)
 - CPU/MEM por container (docker stats)
 
-Discovery atual e gargalos observados: `docs/DISCOVERY.md`.
+Log de descobertas: [DISCOVERY.md](./DISCOVERY.md)

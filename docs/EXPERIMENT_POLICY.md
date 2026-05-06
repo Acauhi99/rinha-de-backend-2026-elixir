@@ -1,47 +1,15 @@
-# Experiment Policy
+# Experiment Policy (Historical)
 
-Objetivo: melhorar score com mudanca controlada por dados.
+Este documento foi substituido por:
 
-## Regra dura
+- [SCORE_PLAYBOOK.md](./SCORE_PLAYBOOK.md)
 
-- Um experimento altera **1 variavel por vez**.
-- Antes de alterar variavel, rodar baseline **3 vezes** no mesmo commit.
-- Comparacao usa mediana das 3 rodadas.
+Motivo: a politica antiga ficou divergente do fluxo atual (baseline, gates e estrategia de branch/imagem).
 
-## Baseline atual (fixo)
+Use o playbook como fonte canonica para:
 
-- `hour_bins = 6`
-- `mcc_bins = 5`
-- `candidates_target = 6000`
-- `candidates_hard_cap = 10000`
-- `engine_timeout_ms = 10`
+- objetivo do projeto
+- loop de hipotese
+- gates de promocao
+- fluxo de submit
 
-## Metricas obrigatorias por rodada
-
-- `final_score`
-- `p99`
-- `failure_rate`
-- `engine_latency_us` (`p50`, `p95`, `p99`)
-- `candidate_count` (`p50`, `p95`, `p99`)
-- `fallback_count`
-- CPU/MEM snapshot por container
-- `exit_code` + `oom_killed` por container (`container-state.txt`)
-
-## Critério de aceite de mudança
-
-Mudanca entra somente se:
-
-1. `failure_rate` nao piora, e
-2. `final_score` mediano sobe de forma consistente (>= 2 de 3 rodadas com ganho).
-
-## Registro
-
-Salvar cada rodada em `benchmarks/<timestamp>/` (ja automatizado no script).
-
-Criar resumo manual em `benchmarks/summary.md` com:
-
-- commit
-- variavel alterada
-- baseline mediano
-- variante mediano
-- decisao (keep/revert)
