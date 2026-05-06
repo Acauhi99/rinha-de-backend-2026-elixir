@@ -1,4 +1,4 @@
-.PHONY: up down logs smoke bench prepare-submission
+.PHONY: up down logs smoke bench prepare-submission replay-8777799
 
 up:
 	docker compose -f docker-compose.local.yml up -d --build
@@ -17,3 +17,6 @@ bench:
 
 prepare-submission:
 	./scripts/prepare-submission.sh
+
+replay-8777799:
+	./scripts/replay-preview-8777799.sh

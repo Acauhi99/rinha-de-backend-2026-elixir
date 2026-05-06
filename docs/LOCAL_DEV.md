@@ -36,6 +36,22 @@ make bench
 make down
 ```
 
+## Replay exato da preview (commit 8777799)
+
+Para reproduzir localmente a mesma submissao que gerou score `-3606.02`:
+
+```bash
+make replay-8777799
+```
+
+Modo agil para testar hipoteses rapidas (menos carga/duracao):
+
+```bash
+K6_TARGET_RPS=450 K6_DURATION_SECONDS=45 make replay-8777799
+```
+
+O script faz checkout do commit da branch `submission`, valida digest da imagem e limites (LB `0.10/10MB`, APIs `0.45/170MB`), roda k6 e salva artefatos em `benchmarks/replay-8777799-<timestamp>/`.
+
 `make bench` salva artefatos em `benchmarks/<timestamp>/`:
 
 - `results.json`
