@@ -17,35 +17,49 @@ services:
           memory: 10MB
 
   api01:
-    image: acauhi/rinha-2026-elixir@sha256:8e173a77be28a956eab4a483378669b49e05b1b51d036a558da4a063b635db9b
+    image: acauhi/rinha-2026-elixir@sha256:51ba213112493fe0142c6b1b197aee76b68a98a17d2305b420a1ab29331f50e5
     environment:
       APP_ROLE: api
       PORT: "4000"
       ENGINE_URL: http://engine:4000/internal/score
       ENGINE_TIMEOUT_MS: "8"
-      CANDIDATES_TARGET: "1000"
-      CANDIDATES_HARD_CAP: "2000"
       RINHA_RESOURCES_DIR: /app/resources
       ERL_AFLAGS: "+S 1:1 +A 1 +sbwt none +sbwtdcpu none +sbwtdio none"
+    depends_on:
+      - engine
     deploy:
       resources:
         limits:
-          cpus: "0.45"
-          memory: 170MB
+          cpus: "0.125"
+          memory: 70MB
 
   api02:
-    image: acauhi/rinha-2026-elixir@sha256:8e173a77be28a956eab4a483378669b49e05b1b51d036a558da4a063b635db9b
+    image: acauhi/rinha-2026-elixir@sha256:51ba213112493fe0142c6b1b197aee76b68a98a17d2305b420a1ab29331f50e5
     environment:
       APP_ROLE: api
       PORT: "4000"
       ENGINE_URL: http://engine:4000/internal/score
       ENGINE_TIMEOUT_MS: "8"
-      CANDIDATES_TARGET: "1000"
-      CANDIDATES_HARD_CAP: "2000"
       RINHA_RESOURCES_DIR: /app/resources
       ERL_AFLAGS: "+S 1:1 +A 1 +sbwt none +sbwtdcpu none +sbwtdio none"
+    depends_on:
+      - engine
     deploy:
       resources:
         limits:
-          cpus: "0.45"
-          memory: 170MB
+          cpus: "0.125"
+          memory: 70MB
+
+  engine:
+    image: acauhi/rinha-2026-elixir@sha256:51ba213112493fe0142c6b1b197aee76b68a98a17d2305b420a1ab29331f50e5
+    environment:
+      APP_ROLE: engine
+      PORT: "4000"
+      INDEX_DIR: /app/index
+      CANDIDATES_TARGET: "1000"
+      CANDIDATES_HARD_CAP: "2000"
+    deploy:
+      resources:
+        limits:
+          cpus: "0.65"
+          memory: 200MB
