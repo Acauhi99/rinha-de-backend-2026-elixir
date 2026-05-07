@@ -106,13 +106,12 @@ defmodule Mix.Tasks.Rinha.BuildIndex do
 
     IO.binwrite(
       io,
-      <<as_q16(v0)::signed-little-16, as_q16(v1)::signed-little-16,
-        as_q16(v2)::signed-little-16, as_q16(v3)::signed-little-16,
-        as_q16(v4)::signed-little-16, as_q16(v5)::signed-little-16,
-        as_q16(v6)::signed-little-16, as_q16(v7)::signed-little-16,
-        as_q16(v8)::signed-little-16, as_q16(v9)::signed-little-16,
-        as_q16(v10)::signed-little-16, as_q16(v11)::signed-little-16,
-        as_q16(v12)::signed-little-16, as_q16(v13)::signed-little-16>>
+      <<as_q16(v0)::signed-little-16, as_q16(v1)::signed-little-16, as_q16(v2)::signed-little-16,
+        as_q16(v3)::signed-little-16, as_q16(v4)::signed-little-16, as_q16(v5)::signed-little-16,
+        as_q16(v6)::signed-little-16, as_q16(v7)::signed-little-16, as_q16(v8)::signed-little-16,
+        as_q16(v9)::signed-little-16, as_q16(v10)::signed-little-16,
+        as_q16(v11)::signed-little-16, as_q16(v12)::signed-little-16,
+        as_q16(v13)::signed-little-16>>
     )
   end
 

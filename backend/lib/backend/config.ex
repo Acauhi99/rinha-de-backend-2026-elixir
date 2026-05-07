@@ -1,12 +1,7 @@
 defmodule Backend.Config do
   @moduledoc false
 
-  def role do
-    case System.get_env("APP_ROLE", "api") do
-      "engine" -> :engine
-      _ -> :api
-    end
-  end
+  def role, do: :api
 
   def candidates_target do
     env_int("CANDIDATES_TARGET", 12_000)
@@ -16,12 +11,36 @@ defmodule Backend.Config do
     env_int("CANDIDATES_HARD_CAP", 20_000)
   end
 
-  def engine_timeout_ms do
-    env_int("ENGINE_TIMEOUT_MS", 8)
+  def bucket_limit_primary do
+    env_int("NPROBE_PRIMARY", 240)
+    |> at_least(1)
   end
 
-  def engine_url do
-    System.get_env("ENGINE_URL", "http://engine:4000/internal/score")
+  def bucket_limit_second_pass do
+    env_int("NPROBE_SECOND_PASS", 240)
+    |> at_least(1)
+  end
+
+  def borderline_second_pass_enabled do
+    env_bool("BORDERLINE_SECOND_PASS_ENABLED", false)
+  end
+
+  def borderline_hits_min do
+    env_int("BORDERLINE_HITS_MIN", 2)
+    |> at_least(0)
+  end
+
+  def borderline_hits_max do
+    env_int("BORDERLINE_HITS_MAX", 3)
+    |> at_least(0)
+  end
+
+  def socket_path do
+    case System.get_env("SOCKET_PATH") do
+      nil -> nil
+      "" -> nil
+      path -> path
+    end
   end
 
   def cowboy_max_connections do
@@ -65,6 +84,15 @@ defmodule Backend.Config do
     case System.get_env(key) do
       nil -> default
       value -> String.to_integer(value)
+    end
+  end
+
+  defp env_bool(key, default) do
+    case System.get_env(key) do
+      nil -> default
+      value when value in ["1", "true", "TRUE", "yes", "YES", "on", "ON"] -> true
+      value when value in ["0", "false", "FALSE", "no", "NO", "off", "OFF"] -> false
+      _ -> default
     end
   end
 

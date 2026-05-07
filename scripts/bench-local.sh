@@ -65,18 +65,8 @@ wait_url_ready() {
 }
 
 collect_metrics() {
-  if curl -fsS http://localhost:4001/internal/metrics >"$RUN_DIR/api01-metrics.json"; then
-    :
-  else
-    printf '{"_error":"api01 metrics unavailable"}\n' >"$RUN_DIR/api01-metrics.json"
-  fi
-
-  if curl -fsS http://localhost:4002/internal/metrics >"$RUN_DIR/api02-metrics.json"; then
-    :
-  else
-    printf '{"_error":"api02 metrics unavailable"}\n' >"$RUN_DIR/api02-metrics.json"
-  fi
-
+  printf '{"_info":"metrics via UDS not collected by this script"}\n' >"$RUN_DIR/api01-metrics.json"
+  printf '{"_info":"metrics via UDS not collected by this script"}\n' >"$RUN_DIR/api02-metrics.json"
   printf '{}' >"$RUN_DIR/engine-metrics.json"
 }
 
@@ -181,8 +171,6 @@ fi
 # Avoid nginx DNS race: bring backend services up first, then lb.
 log_event "compose up api01 api02"
 docker compose -f "$COMPOSE_FILE" up -d api01 api02
-wait_url_ready "http://localhost:4001/ready" "api01"
-wait_url_ready "http://localhost:4002/ready" "api02"
 log_event "compose up lb"
 docker compose -f "$COMPOSE_FILE" up -d lb
 wait_ready

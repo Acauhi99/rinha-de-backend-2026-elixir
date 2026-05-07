@@ -23,7 +23,7 @@ defmodule Backend.FraudScorer do
     vector = [
       clamp(amount / norms["max_amount"]),
       clamp(as_float(fetch!(tx, "installments")) / norms["max_installments"]),
-      clamp((amount / customer_avg_amount) / norms["amount_vs_avg_ratio"]),
+      clamp(amount / customer_avg_amount / norms["amount_vs_avg_ratio"]),
       requested_at.hour / 23,
       day_of_week(requested_at) / 6,
       normalize_last_tx_minutes(minutes_since_last_tx, norms["max_minutes"]),

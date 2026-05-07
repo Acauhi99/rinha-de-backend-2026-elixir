@@ -2,6 +2,7 @@ defmodule Backend.EngineIndex do
   @moduledoc false
 
   use GenServer
+  require Logger
 
   @k 5
   @dim 14
@@ -21,8 +22,15 @@ defmodule Backend.EngineIndex do
 
   @impl true
   def init(state) do
-    {:ok, data} = load_index()
-    :persistent_term.put({__MODULE__, :data}, data)
+    case load_index() do
+      {:ok, data} ->
+        :persistent_term.put({__MODULE__, :data}, data)
+
+      {:error, reason} ->
+        Logger.error("engine index unavailable: #{inspect(reason)}")
+        :persistent_term.put({__MODULE__, :data}, :not_loaded)
+    end
+
     {:ok, state}
   end
 
@@ -35,14 +43,88 @@ defmodule Backend.EngineIndex do
   defp do_score(data, vector) do
     candidates_target = Backend.Config.candidates_target()
     hard_cap = Backend.Config.candidates_hard_cap()
+    primary_bucket_limit = Backend.Config.bucket_limit_primary()
+    second_pass_bucket_limit = Backend.Config.bucket_limit_second_pass()
+    second_pass_enabled = Backend.Config.borderline_second_pass_enabled()
+    borderline_hits_min = Backend.Config.borderline_hits_min()
+    borderline_hits_max = Backend.Config.borderline_hits_max()
     query = as_query_tuple(vector, data.vector_scale)
 
-    {topk, candidate_count} = topk_from_buckets(data, vector, query, candidates_target, hard_cap)
+    {topk, candidate_count} =
+      topk_from_buckets(data, vector, query, candidates_target, hard_cap, primary_bucket_limit)
 
     fraud_hits = Enum.count(topk, fn {_dist, label} -> label == 1 end)
-    fraud_score = fraud_hits / @k
 
-    {:ok, %{fraud_score: fraud_score, candidate_count: candidate_count}}
+    {fraud_hits, candidate_count} =
+      maybe_second_pass(
+        data,
+        vector,
+        query,
+        candidates_target,
+        hard_cap,
+        second_pass_enabled,
+        primary_bucket_limit,
+        second_pass_bucket_limit,
+        borderline_hits_min,
+        borderline_hits_max,
+        fraud_hits,
+        candidate_count
+      )
+
+    {:ok, %{fraud_hits: fraud_hits, candidate_count: candidate_count}}
+  end
+
+  defp maybe_second_pass(
+         data,
+         vector,
+         query,
+         candidates_target,
+         hard_cap,
+         true,
+         primary_bucket_limit,
+         second_pass_bucket_limit,
+         borderline_hits_min,
+         borderline_hits_max,
+         fraud_hits,
+         candidate_count
+       ) do
+    should_rerank =
+      second_pass_bucket_limit > primary_bucket_limit and
+        fraud_hits >= borderline_hits_min and fraud_hits <= borderline_hits_max
+
+    if should_rerank do
+      {second_topk, second_candidate_count} =
+        topk_from_buckets(
+          data,
+          vector,
+          query,
+          candidates_target,
+          hard_cap,
+          second_pass_bucket_limit
+        )
+
+      second_fraud_hits = Enum.count(second_topk, fn {_dist, label} -> label == 1 end)
+      {second_fraud_hits, second_candidate_count}
+    else
+      {fraud_hits, candidate_count}
+    end
+  end
+
+  defp maybe_second_pass(
+         _data,
+         _vector,
+         _query,
+         _candidates_target,
+         _hard_cap,
+         _second_pass_enabled,
+         _primary_bucket_limit,
+         _second_pass_bucket_limit,
+         _borderline_hits_min,
+         _borderline_hits_max,
+         fraud_hits,
+         candidate_count
+       ) do
+    {fraud_hits, candidate_count}
   end
 
   defp load_index do
@@ -93,26 +175,26 @@ defmodule Backend.EngineIndex do
     end
   end
 
-  defp topk_from_buckets(data, vector, query, candidates_target, hard_cap) do
-    buckets = Backend.IndexBucket.candidate_buckets(vector)
+  defp topk_from_buckets(data, vector, query, candidates_target, hard_cap, bucket_limit) do
+    buckets = Backend.IndexBucket.candidate_buckets(vector, bucket_limit)
     query_key = query_key(vector)
 
     Enum.reduce_while(buckets, {[], 0}, fn bucket_id, {topk, count} ->
-        needed = min(hard_cap - count, candidates_target - count)
+      needed = min(hard_cap - count, candidates_target - count)
 
-        if needed <= 0 do
-          {:halt, {topk, count}}
+      if needed <= 0 do
+        {:halt, {topk, count}}
+      else
+        {next_topk, added} = read_bucket_topk(data, bucket_id, needed, query_key, query, topk)
+        next_count = count + added
+
+        if next_count >= candidates_target or next_count >= hard_cap do
+          {:halt, {next_topk, next_count}}
         else
-          {next_topk, added} = read_bucket_topk(data, bucket_id, needed, query_key, query, topk)
-          next_count = count + added
-
-          if next_count >= candidates_target or next_count >= hard_cap do
-            {:halt, {next_topk, next_count}}
-          else
-            {:cont, {next_topk, next_count}}
-          end
+          {:cont, {next_topk, next_count}}
         end
-      end)
+      end
+    end)
   end
 
   defp read_bucket_topk(data, bucket_id, limit, query_key, query, topk) do

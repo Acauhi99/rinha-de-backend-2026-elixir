@@ -4,14 +4,19 @@ defmodule Backend.Router do
   use Plug.ErrorHandler
   use Plug.Router
 
-  plug :match
+  @fraud_responses %{
+    0 => ~s({"approved":true,"fraud_score":0.0}),
+    1 => ~s({"approved":true,"fraud_score":0.2}),
+    2 => ~s({"approved":true,"fraud_score":0.4}),
+    3 => ~s({"approved":false,"fraud_score":0.6}),
+    4 => ~s({"approved":false,"fraud_score":0.8}),
+    5 => ~s({"approved":false,"fraud_score":1.0})
+  }
+  @fallback_body @fraud_responses[0]
 
-  plug Plug.Parsers,
-    parsers: [:json],
-    pass: ["application/json"],
-    json_decoder: Jason
+  plug(:match)
 
-  plug :dispatch
+  plug(:dispatch)
 
   get "/ready" do
     send_resp(conn, 200, "ready")
@@ -26,17 +31,7 @@ defmodule Backend.Router do
   end
 
   post "/fraud-score" do
-    case Backend.Config.role() do
-      :api -> handle_fraud_score(conn)
-      :engine -> send_resp(conn, 404, "not found")
-    end
-  end
-
-  post "/internal/score" do
-    case Backend.Config.role() do
-      :engine -> handle_internal_score(conn)
-      :api -> send_resp(conn, 404, "not found")
-    end
+    handle_fraud_score(conn)
   end
 
   match _ do
@@ -45,68 +40,54 @@ defmodule Backend.Router do
 
   @impl true
   def handle_errors(conn, _error_info) do
-    body = Jason.encode_to_iodata!(%{approved: true, fraud_score: 0.0})
-
     conn
     |> put_resp_content_type("application/json")
-    |> send_resp(200, body)
+    |> send_resp(200, @fallback_body)
   end
 
   defp handle_fraud_score(conn) do
-    with {:ok, vector} <- Backend.FraudScorer.vectorize(conn.body_params),
-         {:ok, response_body} <- Backend.EngineClient.score_vector(vector),
-         {:ok, fraud_score, candidate_count} <- parse_engine_result(response_body) do
-      approved = fraud_score < 0.6
+    started = System.monotonic_time(:microsecond)
 
-      if is_integer(candidate_count) do
+    case do_score(conn) do
+      {:ok, conn, fraud_hits, candidate_count} ->
+        Backend.Metrics.record_engine_latency_us(System.monotonic_time(:microsecond) - started)
         Backend.Metrics.record_candidate_count(candidate_count)
-      end
+        response_body = Map.get(@fraud_responses, fraud_hits, @fallback_body)
 
-      body =
-        Jason.encode_to_iodata!(%{
-          approved: approved,
-          fraud_score: Float.round(fraud_score, 6)
-        })
+        conn
+        |> put_resp_content_type("application/json")
+        |> send_resp(200, response_body)
 
-      conn
-      |> put_resp_content_type("application/json")
-      |> send_resp(200, body)
-    else
       _ ->
         Backend.Metrics.record_fallback()
 
-        body = Jason.encode_to_iodata!(%{approved: true, fraud_score: 0.0})
-
         conn
         |> put_resp_content_type("application/json")
-        |> send_resp(200, body)
+        |> send_resp(200, @fallback_body)
     end
   end
 
-  defp parse_engine_result(response_body) when is_binary(response_body) do
-    with {:ok, decoded} <- Jason.decode(response_body),
-         fraud_score when is_number(fraud_score) <- Map.get(decoded, "fraud_score") do
-      candidate_count = Map.get(decoded, "candidate_count")
-      {:ok, fraud_score * 1.0, candidate_count}
+  defp do_score(conn) do
+    with {:ok, body, conn} <- read_full_body(conn, []),
+         {:ok, vector} <- Backend.FastRequestParser.parse_vector(body),
+         {:ok, %{fraud_hits: fraud_hits, candidate_count: candidate_count}} <-
+           Backend.EngineIndex.score(vector) do
+      {:ok, conn, fraud_hits, candidate_count}
     else
-      _ -> {:error, :invalid_engine_response}
+      _ -> {:error, :score_failed}
     end
   end
 
-  defp handle_internal_score(conn) do
-    vector = Map.get(conn.body_params, "vector")
+  defp read_full_body(conn, acc) do
+    case read_body(conn, length: 16_384, read_length: 16_384, read_timeout: 3_000) do
+      {:ok, chunk, conn} ->
+        {:ok, IO.iodata_to_binary(Enum.reverse([chunk | acc])), conn}
 
-    with {:ok, result} <- Backend.EngineIndex.score(vector) do
-      body = Jason.encode_to_iodata!(result)
+      {:more, chunk, conn} ->
+        read_full_body(conn, [chunk | acc])
 
-      conn
-      |> put_resp_content_type("application/json")
-      |> send_resp(200, body)
-    else
-      _ ->
-        conn
-        |> put_resp_content_type("application/json")
-        |> send_resp(400, Jason.encode_to_iodata!(%{error: "invalid vector"}))
+      {:error, _reason} ->
+        {:error, :body_read_failed}
     end
   end
 end

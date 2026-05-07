@@ -1,7 +1,7 @@
 defmodule Backend.CandidateSampler do
   @moduledoc false
 
-  def sample_positions(count, take, shift) when count <= 0 or take <= 0, do: []
+  def sample_positions(count, take, _shift) when count <= 0 or take <= 0, do: []
 
   def sample_positions(count, take, _shift) when take >= count do
     0..(count - 1)

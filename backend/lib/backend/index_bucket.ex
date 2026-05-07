@@ -18,6 +18,19 @@ defmodule Backend.IndexBucket do
   end
 
   def candidate_buckets(vector) when is_list(vector) do
+    candidate_buckets(vector, :all)
+  end
+
+  def candidate_buckets(vector, limit) when is_list(vector) and is_integer(limit) and limit > 0 do
+    do_candidate_buckets(vector)
+    |> Enum.take(limit)
+  end
+
+  def candidate_buckets(vector, _limit) when is_list(vector) do
+    do_candidate_buckets(vector)
+  end
+
+  defp do_candidate_buckets(vector) do
     hour_bin = quantize(Enum.at(vector, 3), @hour_bins)
     mcc_bin = quantize(Enum.at(vector, 12), @mcc_bins)
     is_online = bool_bin(Enum.at(vector, 9))
@@ -28,7 +41,8 @@ defmodule Backend.IndexBucket do
       {0, 0, [unknown_merchant], [is_online], [card_present]},
       {1, 1, [unknown_merchant], [is_online], [card_present]},
       {2, 1, [unknown_merchant], [is_online, 1 - is_online], [card_present]},
-      {2, 2, [unknown_merchant, 1 - unknown_merchant], [is_online, 1 - is_online], [card_present, 1 - card_present]}
+      {2, 2, [unknown_merchant, 1 - unknown_merchant], [is_online, 1 - is_online],
+       [card_present, 1 - card_present]}
     ]
 
     rings
@@ -64,12 +78,12 @@ defmodule Backend.IndexBucket do
   end
 
   defp around(center, max_bins, radius) do
-    center - radius..center + radius
+    (center - radius)..(center + radius)
     |> Enum.filter(&(&1 >= 0 and &1 < max_bins))
   end
 
   defp encode(hour_bin, mcc_bin, is_online, card_present, unknown_merchant) do
-    ((((hour_bin * @mcc_bins + mcc_bin) * 2 + is_online) * 2 + card_present) * 2 + unknown_merchant)
+    (((hour_bin * @mcc_bins + mcc_bin) * 2 + is_online) * 2 + card_present) * 2 + unknown_merchant
   end
 
   defp quantize(value, bins) do
