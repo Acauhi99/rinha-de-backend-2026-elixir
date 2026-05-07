@@ -10,7 +10,6 @@ defmodule Backend.Application do
         :api ->
           [
             Backend.ReferenceData,
-            Backend.EngineIndex,
             Backend.Metrics,
             Backend.Server
           ]

@@ -54,10 +54,13 @@ defmodule Backend.Router do
 
   defp handle_fraud_score(conn) do
     with {:ok, vector} <- Backend.FraudScorer.vectorize(conn.body_params),
-         {:ok, result} <- Backend.EngineIndex.score(vector) do
-      fraud_score = result.fraud_score
+         {:ok, response_body} <- Backend.EngineClient.score_vector(vector),
+         {:ok, fraud_score, candidate_count} <- parse_engine_result(response_body) do
       approved = fraud_score < 0.6
-      Backend.Metrics.record_candidate_count(result.candidate_count)
+
+      if is_integer(candidate_count) do
+        Backend.Metrics.record_candidate_count(candidate_count)
+      end
 
       body =
         Jason.encode_to_iodata!(%{
@@ -77,6 +80,16 @@ defmodule Backend.Router do
         conn
         |> put_resp_content_type("application/json")
         |> send_resp(200, body)
+    end
+  end
+
+  defp parse_engine_result(response_body) when is_binary(response_body) do
+    with {:ok, decoded} <- Jason.decode(response_body),
+         fraud_score when is_number(fraud_score) <- Map.get(decoded, "fraud_score") do
+      candidate_count = Map.get(decoded, "candidate_count")
+      {:ok, fraud_score * 1.0, candidate_count}
+    else
+      _ -> {:error, :invalid_engine_response}
     end
   end
 
