@@ -17,7 +17,7 @@ services:
           memory: 10MB
 
   api01:
-    image: acauhi/rinha-2026-elixir:latest
+    image: acauhi/rinha-2026-elixir@sha256:51ba213112493fe0142c6b1b197aee76b68a98a17d2305b420a1ab29331f50e5
     environment:
       APP_ROLE: api
       PORT: "4000"
@@ -34,7 +34,7 @@ services:
           memory: 70MB
 
   api02:
-    image: acauhi/rinha-2026-elixir:latest
+    image: acauhi/rinha-2026-elixir@sha256:51ba213112493fe0142c6b1b197aee76b68a98a17d2305b420a1ab29331f50e5
     environment:
       APP_ROLE: api
       PORT: "4000"
@@ -51,7 +51,7 @@ services:
           memory: 70MB
 
   engine:
-    image: acauhi/rinha-2026-elixir:latest
+    image: acauhi/rinha-2026-elixir@sha256:51ba213112493fe0142c6b1b197aee76b68a98a17d2305b420a1ab29331f50e5
     environment:
       APP_ROLE: engine
       PORT: "4000"
