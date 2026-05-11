@@ -34,24 +34,21 @@ defmodule Backend.EngineIndex do
     {:ok, state}
   end
 
-  @impl true
-  def handle_call({:score, vector}, _from, state) do
-    data = :persistent_term.get({__MODULE__, :data})
-    {:reply, do_score(data, vector), state}
-  end
-
   defp do_score(data, vector) do
-    candidates_target = Backend.Config.candidates_target()
-    hard_cap = Backend.Config.candidates_hard_cap()
-    primary_bucket_limit = Backend.Config.bucket_limit_primary()
-    second_pass_bucket_limit = Backend.Config.bucket_limit_second_pass()
-    second_pass_enabled = Backend.Config.borderline_second_pass_enabled()
-    borderline_hits_min = Backend.Config.borderline_hits_min()
-    borderline_hits_max = Backend.Config.borderline_hits_max()
+    cfg = Backend.Config.snapshot()
     query = as_query_tuple(vector, data.vector_scale)
+    query_seed = :erlang.phash2(query)
 
     {topk, candidate_count} =
-      topk_from_buckets(data, vector, query, candidates_target, hard_cap, primary_bucket_limit)
+      topk_from_buckets(
+        data,
+        vector,
+        query,
+        query_seed,
+        cfg.candidates_target,
+        cfg.candidates_hard_cap,
+        cfg.bucket_limit_primary
+      )
 
     fraud_hits = Enum.count(topk, fn {_dist, label} -> label == 1 end)
 
@@ -60,13 +57,8 @@ defmodule Backend.EngineIndex do
         data,
         vector,
         query,
-        candidates_target,
-        hard_cap,
-        second_pass_enabled,
-        primary_bucket_limit,
-        second_pass_bucket_limit,
-        borderline_hits_min,
-        borderline_hits_max,
+        query_seed,
+        cfg,
         fraud_hits,
         candidate_count
       )
@@ -78,13 +70,16 @@ defmodule Backend.EngineIndex do
          data,
          vector,
          query,
-         candidates_target,
-         hard_cap,
-         true,
-         primary_bucket_limit,
-         second_pass_bucket_limit,
-         borderline_hits_min,
-         borderline_hits_max,
+         query_seed,
+         %{
+           borderline_second_pass_enabled: true,
+           bucket_limit_primary: primary_bucket_limit,
+           bucket_limit_second_pass: second_pass_bucket_limit,
+           borderline_hits_min: borderline_hits_min,
+           borderline_hits_max: borderline_hits_max,
+           candidates_target: candidates_target,
+           candidates_hard_cap: hard_cap
+         },
          fraud_hits,
          candidate_count
        ) do
@@ -98,6 +93,7 @@ defmodule Backend.EngineIndex do
           data,
           vector,
           query,
+          query_seed,
           candidates_target,
           hard_cap,
           second_pass_bucket_limit
@@ -110,20 +106,7 @@ defmodule Backend.EngineIndex do
     end
   end
 
-  defp maybe_second_pass(
-         _data,
-         _vector,
-         _query,
-         _candidates_target,
-         _hard_cap,
-         _second_pass_enabled,
-         _primary_bucket_limit,
-         _second_pass_bucket_limit,
-         _borderline_hits_min,
-         _borderline_hits_max,
-         fraud_hits,
-         candidate_count
-       ) do
+  defp maybe_second_pass(_data, _vector, _query, _query_seed, _cfg, fraud_hits, candidate_count) do
     {fraud_hits, candidate_count}
   end
 
@@ -138,19 +121,29 @@ defmodule Backend.EngineIndex do
       :ok = validate_meta!(meta)
       :ok = validate_vectors_size!(vectors, meta.total)
 
+      bucket_offsets_tuple = build_offsets_tuple(meta.bucket_offsets)
+
       {:ok,
        %{
          vectors: vectors,
          labels: labels,
          postings: postings,
          vector_scale: Map.get(meta, :vector_scale, @default_q16_scale),
-         bucket_offsets: meta.bucket_offsets,
+         bucket_offsets: bucket_offsets_tuple,
          total: meta.total
        }}
     else
       _ ->
         {:error, :index_load_failed}
     end
+  end
+
+  defp build_offsets_tuple(bucket_offsets_map) when is_map(bucket_offsets_map) do
+    total = Backend.IndexBucket.total_buckets()
+
+    0..(total - 1)
+    |> Enum.map(fn id -> Map.get(bucket_offsets_map, id, {0, 0}) end)
+    |> List.to_tuple()
   end
 
   defp validate_meta!(meta) do
@@ -175,9 +168,16 @@ defmodule Backend.EngineIndex do
     end
   end
 
-  defp topk_from_buckets(data, vector, query, candidates_target, hard_cap, bucket_limit) do
+  defp topk_from_buckets(
+         data,
+         vector,
+         query,
+         query_seed,
+         candidates_target,
+         hard_cap,
+         bucket_limit
+       ) do
     buckets = Backend.IndexBucket.candidate_buckets(vector, bucket_limit)
-    query_key = query_key(vector)
 
     Enum.reduce_while(buckets, {[], 0}, fn bucket_id, {topk, count} ->
       needed = min(hard_cap - count, candidates_target - count)
@@ -185,7 +185,7 @@ defmodule Backend.EngineIndex do
       if needed <= 0 do
         {:halt, {topk, count}}
       else
-        {next_topk, added} = read_bucket_topk(data, bucket_id, needed, query_key, query, topk)
+        {next_topk, added} = read_bucket_topk(data, bucket_id, needed, query_seed, query, topk)
         next_count = count + added
 
         if next_count >= candidates_target or next_count >= hard_cap do
@@ -197,9 +197,9 @@ defmodule Backend.EngineIndex do
     end)
   end
 
-  defp read_bucket_topk(data, bucket_id, limit, query_key, query, topk) do
-    case Map.get(data.bucket_offsets, bucket_id) do
-      nil ->
+  defp read_bucket_topk(data, bucket_id, limit, query_seed, query, topk) do
+    case elem(data.bucket_offsets, bucket_id) do
+      {_offset, 0} ->
         {topk, 0}
 
       {offset, count} ->
@@ -208,53 +208,96 @@ defmodule Backend.EngineIndex do
         if max_take <= 0 do
           {topk, 0}
         else
-          shift = deterministic_shift(bucket_id, query_key, count)
-          positions = Backend.CandidateSampler.sample_positions(count, max_take, shift)
-          scan_positions(data, offset, positions, query, topk)
+          shift = deterministic_shift(bucket_id, query_seed, count)
+          # Single recursive stride loop: no intermediate position list, no
+          # Enum.reduce closure, no list allocation per candidate. Top-k is
+          # kept as a list but insertion is inlined; for k=5 this is fine.
+          scan_stride(data, offset, 0, max_take, count, shift, query, topk)
         end
     end
   end
 
-  defp scan_positions(data, offset, positions, query, topk) do
-    Enum.reduce(positions, {topk, 0}, fn pos, {acc, added} ->
-      byte_offset = offset + pos * 4
-      <<id::unsigned-little-32>> = binary_part(data.postings, byte_offset, 4)
-      dist = distance_squared(data.vectors, id, query)
-      label = label_at(data.labels, id)
-      {upsert_topk(acc, {dist, label}), added + 1}
-    end)
+  # scan_stride/8: for i in 0..max_take-1, compute pos = rem(div(i*count, max_take) + shift, count),
+  # read the 4-byte posting id at offset+pos*4, compute squared distance, update topk.
+  defp scan_stride(_data, _offset, i, max_take, _count, _shift, _query, topk)
+       when i >= max_take do
+    {topk, i}
   end
 
-  defp upsert_topk(topk, candidate) do
+  defp scan_stride(data, offset, i, max_take, count, shift, query, topk) do
+    base = div(i * count, max_take)
+    pos = rem(base + shift, count)
+    byte_offset = offset + pos * 4
+    <<id::unsigned-little-32>> = binary_part(data.postings, byte_offset, 4)
+    dist = distance_squared(data.vectors, id, query)
+    label = :binary.at(data.labels, id)
+    new_topk = upsert_topk(topk, dist, label)
+    scan_stride(data, offset, i + 1, max_take, count, shift, query, new_topk)
+  end
+
+  # upsert_topk keeps a list of at most @k {dist, label} tuples, ordered so the
+  # head is always the current max distance. For @k=5 this beats a heap.
+  defp upsert_topk([], dist, label), do: [{dist, label}]
+
+  defp upsert_topk([{max_d, _} = top | rest] = topk, dist, label) do
+    len = length(topk)
+
     cond do
-      length(topk) < @k ->
-        [candidate | topk]
+      len < @k ->
+        # Still filling; keep invariant head = max.
+        if dist > max_d do
+          [{dist, label} | topk]
+        else
+          [top | insert_preserving_max(rest, dist, label, max_d)]
+        end
+
+      dist >= max_d ->
+        # Worse than current max: drop.
+        topk
 
       true ->
-        {max_idx, max_dist} = topk_max(topk)
-
-        if elem(candidate, 0) < max_dist do
-          List.replace_at(topk, max_idx, candidate)
-        else
-          topk
-        end
+        # Better than max: replace head and recompute new max.
+        new_list = [{dist, label} | rest]
+        promote_max(new_list)
     end
   end
 
-  defp topk_max(topk) do
-    topk
-    |> Enum.with_index()
-    |> Enum.reduce({0, -1.0e308}, fn {{dist, _label}, idx}, {best_idx, best_dist} ->
-      if dist > best_dist do
-        {idx, dist}
-      else
-        {best_idx, best_dist}
-      end
-    end)
+  # Used only while filling (< @k elements). Inserts while preserving that
+  # the caller's head remains the overall max.
+  defp insert_preserving_max(list, dist, label, _head_max) do
+    [{dist, label} | list]
   end
 
-  defp label_at(labels, id) do
-    :binary.at(labels, id)
+  # Finds the max element in a list of @k tuples and moves it to the head.
+  defp promote_max([a, b, c, d, e]) do
+    {da, _} = a
+    {db, _} = b
+    {dc, _} = c
+    {dd, _} = d
+    {de, _} = e
+
+    max_d = max(da, max(db, max(dc, max(dd, de))))
+
+    cond do
+      da == max_d -> [a, b, c, d, e]
+      db == max_d -> [b, a, c, d, e]
+      dc == max_d -> [c, a, b, d, e]
+      dd == max_d -> [d, a, b, c, e]
+      true -> [e, a, b, c, d]
+    end
+  end
+
+  defp promote_max(list) do
+    # Fallback for any size (e.g. < @k during tests).
+    {max_idx, _max_d} =
+      list
+      |> Enum.with_index()
+      |> Enum.reduce({0, -1.0e308}, fn {{d, _}, idx}, {bi, bd} ->
+        if d > bd, do: {idx, d}, else: {bi, bd}
+      end)
+
+    {top, rest} = List.pop_at(list, max_idx)
+    [top | rest]
   end
 
   defp distance_squared(vectors, id, query) do
@@ -274,13 +317,8 @@ defmodule Backend.EngineIndex do
 
   defp sq(value), do: value * value
 
-  defp deterministic_shift(bucket_id, query_key, count) do
-    :erlang.phash2({bucket_id, query_key}, count)
-  end
-
-  defp query_key(vector) do
-    vector
-    |> Enum.map(&trunc(&1 * 1000))
+  defp deterministic_shift(bucket_id, query_seed, count) do
+    :erlang.phash2({bucket_id, query_seed}, count)
   end
 
   defp as_query_tuple([q0, q1, q2, q3, q4, q5, q6, q7, q8, q9, q10, q11, q12, q13], scale) do

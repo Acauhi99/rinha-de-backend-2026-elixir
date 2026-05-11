@@ -5,6 +5,11 @@ defmodule Backend.Application do
 
   @impl true
   def start(_type, _args) do
+    # Prime persistent_term caches before any request handler comes online.
+    # These are cheap, deterministic, and eliminate per-request env/ring work.
+    Backend.Config.cache!()
+    Backend.IndexBucket.cache_rings!()
+
     children = [
       Backend.ReferenceData,
       Backend.EngineIndex,

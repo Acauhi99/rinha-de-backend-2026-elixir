@@ -3,10 +3,18 @@ defmodule Backend.IndexBucket do
 
   @hour_bins 6
   @mcc_bins 5
+  # 6 * 5 * 2 * 2 * 2 = 120 possible bucket ids (index space)
+  @total_buckets @hour_bins * @mcc_bins * 2 * 2 * 2
+
+  @rings_key {__MODULE__, :rings_table}
 
   def hour_bins, do: @hour_bins
   def mcc_bins, do: @mcc_bins
+  def total_buckets, do: @total_buckets
 
+  @doc """
+  Computes the bucket id (0..#{@total_buckets - 1}) for a vector.
+  """
   def bucket_id(vector) when is_list(vector) do
     hour_bin = quantize(Enum.at(vector, 3), @hour_bins)
     mcc_bin = quantize(Enum.at(vector, 12), @mcc_bins)
@@ -17,26 +25,70 @@ defmodule Backend.IndexBucket do
     encode(hour_bin, mcc_bin, is_online, card_present, unknown_merchant)
   end
 
+  @doc """
+  Builds the precomputed candidate_buckets table and stores it in
+  `:persistent_term`. Must be called at application boot.
+  """
+  def cache_rings! do
+    :persistent_term.put(@rings_key, build_rings_table())
+    :ok
+  end
+
+  @doc """
+  Returns a tuple indexed by bucket_id where each element is the ordered list
+  of candidate bucket ids (rings) to probe.
+  """
+  def build_rings_table do
+    for h <- 0..(@hour_bins - 1),
+        m <- 0..(@mcc_bins - 1),
+        o <- 0..1,
+        p <- 0..1,
+        u <- 0..1 do
+      candidate_buckets_for_key(h, m, o, p, u)
+    end
+    |> List.to_tuple()
+  end
+
   def candidate_buckets(vector) when is_list(vector) do
-    candidate_buckets(vector, :all)
+    key = bucket_id(vector)
+    elem(rings_table(), key)
   end
 
   def candidate_buckets(vector, limit) when is_list(vector) and is_integer(limit) and limit > 0 do
-    do_candidate_buckets(vector)
-    |> Enum.take(limit)
+    # The full ring list is always <= @total_buckets (120). Any reasonable
+    # NPROBE_PRIMARY (e.g. 240) makes Enum.take a no-op, but we keep it for
+    # safety when callers pass smaller limits.
+    buckets = candidate_buckets(vector)
+
+    if limit >= length(buckets) do
+      buckets
+    else
+      Enum.take(buckets, limit)
+    end
   end
 
   def candidate_buckets(vector, _limit) when is_list(vector) do
-    do_candidate_buckets(vector)
+    candidate_buckets(vector)
   end
 
-  defp do_candidate_buckets(vector) do
-    hour_bin = quantize(Enum.at(vector, 3), @hour_bins)
-    mcc_bin = quantize(Enum.at(vector, 12), @mcc_bins)
-    is_online = bool_bin(Enum.at(vector, 9))
-    card_present = bool_bin(Enum.at(vector, 10))
-    unknown_merchant = bool_bin(Enum.at(vector, 11))
+  def decode(id) when is_integer(id) do
+    unknown_merchant = rem(id, 2)
+    rem1 = div(id, 2)
 
+    card_present = rem(rem1, 2)
+    rem2 = div(rem1, 2)
+
+    is_online = rem(rem2, 2)
+    rem3 = div(rem2, 2)
+
+    mcc_bin = rem(rem3, @mcc_bins)
+    hour_bin = div(rem3, @mcc_bins)
+
+    {hour_bin, mcc_bin, is_online, card_present, unknown_merchant}
+  end
+
+  # Pure function of the 5 bin coordinates; used both for precompute and tests.
+  defp candidate_buckets_for_key(hour_bin, mcc_bin, is_online, card_present, unknown_merchant) do
     rings = [
       {0, 0, [unknown_merchant], [is_online], [card_present]},
       {1, 1, [unknown_merchant], [is_online], [card_present]},
@@ -61,20 +113,16 @@ defmodule Backend.IndexBucket do
     |> Enum.uniq()
   end
 
-  def decode(id) when is_integer(id) do
-    unknown_merchant = rem(id, 2)
-    rem1 = div(id, 2)
+  defp rings_table do
+    case :persistent_term.get(@rings_key, :not_cached) do
+      :not_cached ->
+        table = build_rings_table()
+        :persistent_term.put(@rings_key, table)
+        table
 
-    card_present = rem(rem1, 2)
-    rem2 = div(rem1, 2)
-
-    is_online = rem(rem2, 2)
-    rem3 = div(rem2, 2)
-
-    mcc_bin = rem(rem3, @mcc_bins)
-    hour_bin = div(rem3, @mcc_bins)
-
-    {hour_bin, mcc_bin, is_online, card_present, unknown_merchant}
+      table ->
+        table
+    end
   end
 
   defp around(center, max_bins, radius) do
