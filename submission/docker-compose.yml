@@ -18,7 +18,7 @@ services:
           memory: 20MB
 
   api01:
-    image: acauhi/rinha-2026-elixir@sha256:1e3748e243f6855e176b4e3fc46df6a10a796ee8d3a666469a254faa0e583f7c
+    image: acauhi/rinha-2026-elixir@sha256:d2907c6804ba00b0c11f7a8d21496afc1cbc88b61898e216f84fb824a3c2828b
     environment:
       SOCKET_PATH: /run/sock/api01.sock
       INDEX_DIR: /app/index
@@ -40,7 +40,7 @@ services:
           memory: 165MB
 
   api02:
-    image: acauhi/rinha-2026-elixir@sha256:1e3748e243f6855e176b4e3fc46df6a10a796ee8d3a666469a254faa0e583f7c
+    image: acauhi/rinha-2026-elixir@sha256:d2907c6804ba00b0c11f7a8d21496afc1cbc88b61898e216f84fb824a3c2828b
     environment:
       SOCKET_PATH: /run/sock/api02.sock
       INDEX_DIR: /app/index
